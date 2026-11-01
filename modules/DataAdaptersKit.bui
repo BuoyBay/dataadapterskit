@@ -1,0 +1,329 @@
+Import spreadsheetkit
+Import jsonrows
+Import csvkit
+
+''' Immutable table conversion metadata. Table itself is immutable JSONRows data.
+Public Class TableConversion
+    Private Property mTable As JSONRowsTable
+    Private Property mColumns As Array Of String
+    Private Property mMissing As Integer
+    Private Property mNull As Integer
+    Private Property mFormula As Integer
+    Public Sub Constructor(table As JSONRowsTable, columns As Array Of String, missing As Integer, nulls As Integer, formulas As Integer)
+        If table Is Nil Or missing < 0 Or nulls < 0 Or formulas < 0 Then Throw New InvalidArgumentException("Invalid conversion metadata")
+        mTable = table
+        mColumns = Array.Clone(columns)
+        mMissing = missing
+        mNull = nulls
+        mFormula = formulas
+    End Sub
+    Public Property Table As JSONRowsTable
+        Get
+            Return mTable
+        End Get
+    End Property
+    Public Property Columns As Array Of String
+        Get
+            Return Array.Clone(mColumns)
+        End Get
+    End Property
+    Public Property MissingValues As Integer
+        Get
+            Return mMissing
+        End Get
+    End Property
+    Public Property NullValues As Integer
+        Get
+            Return mNull
+        End Get
+    End Property
+    Public Property FormulaValues As Integer
+        Get
+            Return mFormula
+        End Get
+    End Property
+End Class
+
+''' CSV text and counts of values whose distinct semantics were flattened.
+Public Class CSVConversion
+    Private Property mText As String
+    Private Property mMissing As Integer
+    Private Property mNull As Integer
+    Private Property mNested As Integer
+    Private Property mFormula As Integer
+    Public Sub Constructor(text As String, missing As Integer, nulls As Integer, nested As Integer, formulas As Integer = 0)
+        If missing < 0 Or nulls < 0 Or nested < 0 Or formulas < 0 Then Throw New InvalidArgumentException("Invalid conversion metadata")
+        mText = text
+        mMissing = missing
+        mNull = nulls
+        mNested = nested
+        mFormula = formulas
+    End Sub
+    Public Property Text As String
+        Get
+            Return mText
+        End Get
+    End Property
+    Public Property MissingValues As Integer
+        Get
+            Return mMissing
+        End Get
+    End Property
+    Public Property NullValues As Integer
+        Get
+            Return mNull
+        End Get
+    End Property
+    Public Property NestedValues As Integer
+        Get
+            Return mNested
+        End Get
+    End Property
+    Public Property FormulaValues As Integer
+        Get
+            Return mFormula
+        End Get
+    End Property
+End Class
+
+Private Sub CheckAdapterLimit(maxCharacters As Integer)
+    If maxCharacters < 1 Or maxCharacters > 16000000 Then Throw New InvalidArgumentException("Conversion character limit must be 1..16000000")
+End Sub
+
+''' Export first-seen union columns, with a header and canonical CSV quoting.
+Public Function JSONRowsCSV(table As JSONRowsTable, missingValue As String = "", nullValue As String = "", nestedJSON As Boolean = False, maxCharacters As Integer = 1000000) As CSVConversion
+    If table Is Nil Then Throw New InvalidArgumentException("Table must not be Nil")
+    CheckAdapterLimit(maxCharacters)
+    If table.RowCount > 100000 Or table.ColumnCount > 1000 Then Throw New InvalidArgumentException("CSV adapter table exceeds row/column bounds")
+    If String.Len(missingValue) > maxCharacters Or String.Len(nullValue) > maxCharacters Then Throw New InvalidArgumentException("Replacement exceeds output bound")
+    Return JSONRowsCSVColumns(table, table.Columns(), missingValue, nullValue, nestedJSON, maxCharacters)
+End Function
+
+Public Function JSONRowsCSVColumns(table As JSONRowsTable, columns As Array Of String, missingValue As String = "", nullValue As String = "", nestedJSON As Boolean = False, maxCharacters As Integer = 1000000) As CSVConversion
+    ValidateCSVProjection(table, columns, missingValue, nullValue, maxCharacters)
+    If Array.Count(columns) = 0 Then
+        If table.RowCount > 0 Then Throw New InvalidArgumentException("CSV cannot represent rows with zero columns")
+        Return New CSVConversion("", 0, 0, 0)
+    End If
+    Dim header As New CSVRecord()
+    header.Fields = columns
+    Dim records() As CSVRecord
+    Array.Append(records, header)
+    Dim projection As New CSVProjection()
+    Dim remaining As Integer = maxCharacters
+    Dim headerText As String = WriteCSV(records, ",", remaining)
+    remaining -= String.Len(headerText)
+    Dim lines() As String
+    Array.Append(lines, headerText)
+    For i As Integer = 0 To table.RowCount - 1
+        Dim record As CSVRecord = projection.Record(table, i, columns, missingValue, nullValue, nestedJSON)
+        If remaining < 1 Then Throw New InvalidArgumentException("CSV adapter output limit exceeded")
+        Dim one() As CSVRecord
+        Array.Append(one, record)
+        Dim rowText As String = WriteCSV(one, ",", remaining)
+        remaining -= String.Len(rowText)
+        Array.Append(lines, rowText)
+    Next
+    Return New CSVConversion(String.Join(lines, ""), projection.Missing, projection.Nulls, projection.Nested)
+End Function
+
+''' A contiguous, exact unique String header maps sparse cells to JSON fields.
+Public Function XLSXSheetRows(sheet As XLSXSheet, headerRow As Integer = 1, maxRows As Integer = 10000, maxColumns As Integer = 1000, maxCharacters As Integer = 1000000, allowCachedFormulas As Boolean = False) As TableConversion
+    If sheet Is Nil Then Throw New InvalidArgumentException("Sheet must not be Nil")
+    CheckAdapterLimit(maxCharacters)
+    If headerRow < 1 Or headerRow > 1048576 Or maxRows < 0 Or maxRows > 100000 Or maxColumns < 1 Or maxColumns > 1000 Then Throw New InvalidArgumentException("Invalid adapter bounds")
+    Dim cells As Array Of XLSXCell = sheet.Cells
+    If Array.Count(cells) > 1000000 Then Throw New InvalidArgumentException("Source sheet exceeds one million cells")
+    Dim positions As New Map Of Integer, Boolean()
+    Dim width As Integer
+    Dim lastRow As Integer = headerRow
+    For Each cell As XLSXCell In cells
+        If cell Is Nil Then Throw New InvalidArgumentException("Nil source cell")
+        If cell.Row < 1 Or cell.Row > 1048576 Or cell.Column < 1 Or cell.Column > 16384 Then Throw New InvalidArgumentException("Invalid source cell coordinate")
+        Dim position As Integer = (cell.Row - 1) * 16384 + cell.Column - 1
+        If positions.ContainsKey(position) Then Throw New InvalidArgumentException("Duplicate source cell coordinate")
+        positions.Set(position, True)
+        If cell.Row = headerRow Then width = Math.Max(width, cell.Column)
+        If cell.Row > headerRow Then lastRow = Math.Max(lastRow, cell.Row)
+    Next
+    If width < 1 Or width > maxColumns Then Throw New InvalidArgumentException("Header is empty or too wide")
+    If lastRow - headerRow > maxRows Then Throw New InvalidArgumentException("Row limit exceeded before densification")
+    If (lastRow - headerRow) * width > 1000000 Then Throw New InvalidArgumentException("Densified table exceeds one million positions")
+    Dim headers() As String
+    For column As Integer = 1 To width
+        Dim optionalCell As Optional Of XLSXCell = sheet.Cell(headerRow, column)
+        If Not optionalCell.HasValue Then Throw New InvalidArgumentException("Header has a missing cell")
+        Dim cell As XLSXCell = optionalCell.Value
+        If cell.Kind <> "string" Or cell.Text = "" Or cell.Formula <> "" Then Throw New InvalidArgumentException("Headers must be nonempty literal strings")
+        For Each existing As String In headers
+            If String.Compare(existing, cell.Text, True) = 0 Then Throw New InvalidArgumentException("Duplicate header")
+        Next
+        Array.Append(headers, cell.Text)
+    Next
+    For Each cell As XLSXCell In cells
+        If cell.Row > headerRow And cell.Column > width Then Throw New InvalidArgumentException("Data cell lies outside header columns")
+    Next
+    Dim rows As JSONItem = JSONItem.NewArray()
+    Dim missing As Integer
+    Dim nulls As Integer
+    Dim formulas As Integer
+    Dim characters As Integer = 2
+    For rowIndex As Integer = headerRow + 1 To lastRow
+        Dim row As JSONItem = JSONItem.NewObject()
+        For column As Integer = 1 To width
+            Dim optionalCell As Optional Of XLSXCell = sheet.Cell(rowIndex, column)
+            If Not optionalCell.HasValue Then
+                missing += 1
+                Continue For
+            End If
+            Dim cell As XLSXCell = optionalCell.Value
+            If cell.Formula <> "" Then
+                If Not allowCachedFormulas Then Throw New InvalidArgumentException("Formula requires explicit allowCachedFormulas=True")
+                formulas += 1
+            End If
+            Dim value As JSONItem
+            Select Case cell.Kind
+                Case "blank"
+                    value = JSONItem.Null()
+                    nulls += 1
+                Case "string", "date-text"
+                    value = JSONItem.From(cell.Text)
+                Case "number"
+                    value = JSONItem.From(cell.NumberValue())
+                Case "boolean"
+                    If cell.Text <> "0" And cell.Text <> "1" Then Throw New InvalidArgumentException("Invalid boolean source cell")
+                    value = JSONItem.From(cell.Text = "1")
+                Case Else
+                    Throw New InvalidArgumentException("Spreadsheet errors or unsupported cell kinds cannot become table values")
+            End Select
+            row.Value(headers(column - 1)) = value
+        Next
+        Dim rowLength As Integer = String.Len(Json.Stringify(row))
+        If rowIndex > headerRow + 1 Then rowLength += 1
+        If rowLength > maxCharacters - characters Then Throw New InvalidArgumentException("JSON adapter output limit exceeded")
+        characters += rowLength
+        rows.Add(row)
+    Next
+    Dim table As New JSONRowsTable(Json.Stringify(rows), maxCharacters, maxRows, maxColumns)
+    Return New TableConversion(table, headers, missing, nulls, formulas)
+End Function
+
+Public Function XLSXSheetCSV(sheet As XLSXSheet, headerRow As Integer = 1, missingValue As String = "", nullValue As String = "", maxRows As Integer = 10000, maxColumns As Integer = 1000, maxCharacters As Integer = 1000000, allowCachedFormulas As Boolean = False) As CSVConversion
+    Dim converted As TableConversion = XLSXSheetRows(sheet, headerRow, maxRows, maxColumns, maxCharacters, allowCachedFormulas)
+    Dim csv As CSVConversion = JSONRowsCSVColumns(converted.Table, converted.Columns, missingValue, nullValue, False, maxCharacters)
+    Return New CSVConversion(csv.Text, csv.MissingValues, csv.NullValues, csv.NestedValues, converted.FormulaValues)
+End Function
+
+Private Sub ValidateCSVProjection(table As JSONRowsTable, columns As Array Of String, missingValue As String, nullValue As String, maxCharacters As Integer)
+    If table Is Nil Then Throw New InvalidArgumentException("Table must not be Nil")
+    CheckAdapterLimit(maxCharacters)
+    If table.RowCount > 100000 Or Array.Count(columns) > 1000 Then Throw New InvalidArgumentException("CSV adapter table exceeds row/column bounds")
+    If table.RowCount * Array.Count(columns) > 1000000 Then Throw New InvalidArgumentException("CSV projection exceeds one million positions")
+    If String.Len(missingValue) > maxCharacters Or String.Len(nullValue) > maxCharacters Then Throw New InvalidArgumentException("Replacement exceeds output bound")
+    For i As Integer = 0 To Array.Count(columns) - 1
+        For j As Integer = 0 To i - 1
+            If String.Compare(columns(i), columns(j), True) = 0 Then Throw New InvalidArgumentException("Duplicate export column")
+        Next
+    Next
+End Sub
+
+Private Class CSVProjection
+    Public Property Missing As Integer
+    Public Property Nulls As Integer
+    Public Property Nested As Integer
+    Public Function Record(table As JSONRowsTable, rowIndex As Integer, columns As Array Of String, missingValue As String, nullValue As String, nestedJSON As Boolean) As CSVRecord
+        Dim record As New CSVRecord()
+        For Each column As String In columns
+            Dim value As String
+            Dim kind As Integer = table.CellKind(rowIndex, column)
+            Select Case kind
+                Case -1
+                    value = missingValue
+                    Missing += 1
+                Case JSONItem.KindNull
+                    value = nullValue
+                    Nulls += 1
+                Case JSONItem.KindString
+                    value = table.StringValue(rowIndex, column)
+                Case JSONItem.KindNumber, JSONItem.KindBoolean
+                    value = Json.Stringify(table.Cell(rowIndex, column))
+                Case Else
+                    If Not nestedJSON Then Throw New InvalidArgumentException("Nested JSON value requires explicit nestedJSON=True")
+                    value = Json.Stringify(table.Cell(rowIndex, column))
+                    Nested += 1
+            End Select
+            Array.Append(record.Fields, value)
+        Next
+        Return record
+    End Function
+End Class
+
+''' Successful sink export counts. No CSV text is retained.
+Public Class CSVWriteResult
+    Private Property mBytesWritten As Integer
+    Private Property mRecordsWritten As Integer
+    Private Property mMissingValues As Integer
+    Private Property mNullValues As Integer
+    Private Property mNestedValues As Integer
+    Public Sub Constructor(bytesWritten As Integer, recordsWritten As Integer, missingValues As Integer, nullValues As Integer, nestedValues As Integer)
+        If bytesWritten < 0 Or recordsWritten < 0 Or missingValues < 0 Or nullValues < 0 Or nestedValues < 0 Then Throw New InvalidArgumentException("Invalid conversion metadata")
+        mBytesWritten = bytesWritten
+        mRecordsWritten = recordsWritten
+        mMissingValues = missingValues
+        mNullValues = nullValues
+        mNestedValues = nestedValues
+    End Sub
+    Public Property BytesWritten As Integer
+        Get
+            Return mBytesWritten
+        End Get
+    End Property
+    Public Property RecordsWritten As Integer
+        Get
+            Return mRecordsWritten
+        End Get
+    End Property
+    Public Property MissingValues As Integer
+        Get
+            Return mMissingValues
+        End Get
+    End Property
+    Public Property NullValues As Integer
+        Get
+            Return mNullValues
+        End Get
+    End Property
+    Public Property NestedValues As Integer
+        Get
+            Return mNestedValues
+        End Get
+    End Property
+End Class
+
+''' Export the immutable table's encounter-order columns to a synchronous sink.
+Public Function JSONRowsCSVToSink(table As JSONRowsTable, sink As CSVByteSink, missingValue As String = "", nullValue As String = "", nestedJSON As Boolean = False, maxBytes As Integer = 1000000, maxRecordBytes As Integer = 1000000) As CSVWriteResult
+    If table Is Nil Then Throw New InvalidArgumentException("Table must not be Nil")
+    CheckAdapterLimit(maxBytes)
+    If table.RowCount > 100000 Or table.ColumnCount > 1000 Then Throw New InvalidArgumentException("CSV adapter table exceeds row/column bounds")
+    If String.Len(missingValue) > maxBytes Or String.Len(nullValue) > maxBytes Then Throw New InvalidArgumentException("Replacement exceeds output bound")
+    Return JSONRowsCSVColumnsToSink(table, table.Columns(), sink, missingValue, nullValue, nestedJSON, maxBytes, maxRecordBytes)
+End Function
+
+''' Clone projection columns, then emit a header and one UTF-8 record at a time.
+Public Function JSONRowsCSVColumnsToSink(table As JSONRowsTable, columns As Array Of String, sink As CSVByteSink, missingValue As String = "", nullValue As String = "", nestedJSON As Boolean = False, maxBytes As Integer = 1000000, maxRecordBytes As Integer = 1000000) As CSVWriteResult
+    ValidateCSVProjection(table, columns, missingValue, nullValue, maxBytes)
+    Dim selected As Array Of String = Array.Clone(columns)
+    Dim writer As New CSVStreamWriter(sink, ",", maxBytes, 100001, maxRecordBytes)
+    Dim projection As New CSVProjection()
+    If Array.Count(selected) = 0 Then
+        If table.RowCount > 0 Then Throw New InvalidArgumentException("CSV cannot represent rows with zero columns")
+        Return New CSVWriteResult(0, 0, 0, 0, 0)
+    End If
+    Dim header As New CSVRecord()
+    header.Fields = selected
+    writer.Write(header)
+    For i As Integer = 0 To table.RowCount - 1
+        writer.Write(projection.Record(table, i, selected, missingValue, nullValue, nestedJSON))
+    Next
+    Return New CSVWriteResult(writer.BytesWritten, writer.RecordsWritten, projection.Missing, projection.Nulls, projection.Nested)
+End Function

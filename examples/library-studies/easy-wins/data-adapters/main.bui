@@ -1,0 +1,17 @@
+Import dataadapterskit
+Import spreadsheetkit
+Import csvkit
+
+Sub Main(args As Array Of String)
+    If Array.Count(args) > 1 Then
+        Dim workbook As XLSXWorkbook = ReadXLSX(args(1))
+        Dim output As CSVConversion = XLSXSheetCSV(workbook.Sheets(0), allowCachedFormulas: True)
+        Print output.Text
+        Print "Flattened missing values: " + String.From(output.MissingValues)
+        Print "Flattened nulls: " + String.From(output.NullValues)
+        Print "Cached formulas: " + String.From(output.FormulaValues)
+    Else
+        Dim table As New JSONRowsTable("[{\"name\":\"Zoë\",\"score\":42},{\"name\":\"Ada\",\"score\":null}]")
+        Print JSONRowsCSV(table, nullValue: "NULL").Text
+    End If
+End Sub

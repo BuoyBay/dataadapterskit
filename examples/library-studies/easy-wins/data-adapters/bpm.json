@@ -1,0 +1,9 @@
+{
+  "schema": 1,
+  "dependencies": {
+    "dataadapterskit": {
+      "git": "https://github.com/BuoyBay/dataadapterskit.git",
+      "rev": "refs/heads/main"
+    }
+  }
+}

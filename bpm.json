@@ -1,0 +1,31 @@
+{
+    "schema": 1,
+    "buoy": "0.72.0",
+    "dependencies": {
+        "spreadsheetkit": {
+            "git": "https://github.com/BuoyBay/spreadsheetkit.git",
+            "rev": "refs/heads/main"
+        },
+        "jsonrows": {
+            "git": "https://github.com/BuoyBay/jsonrows.git",
+            "rev": "refs/heads/main"
+        },
+        "csvkit": {
+            "git": "https://github.com/BuoyBay/csvkit.git",
+            "rev": "refs/heads/main"
+        }
+    },
+    "files": [
+        "manifest.json",
+        "modules",
+        "README.md",
+        "PROVENANCE.md",
+        "resources/buoy-docs",
+        "resources",
+        "LICENSE",
+        "LICENSE-MIT.txt",
+        "LICENSE-APACHE.txt",
+        "LICENSE-DOCS.txt",
+        "NOTICE.md"
+    ]
+}
