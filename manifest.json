@@ -1,1 +1,1 @@
-{"schema":1,"name":"dataadapterskit","version":"0.1.0","description":"Explicit bounded XLSX, JSON table and CSV conversion policies"}
+{"schema":1,"name":"dataadapterskit","version":"0.1.0","description":"XLSX / JSON table / CSV conversions with explicit policies"}

@@ -1,4 +1,4 @@
-# Convert XLSX, JSON tables and CSV with explicit policies
+# XLSX / JSON table / CSV conversions with explicit policies
 
 Explicit conversions between SpreadsheetKit's XLSX sheets, JSONRows tables and
 CSVKit records. `Import dataadapterskit` adds policy adapters; it does not add
