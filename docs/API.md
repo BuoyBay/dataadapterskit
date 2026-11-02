@@ -83,26 +83,16 @@ serialization may allocate before a length check, and the input tables/sheets
 already exist in memory. Imported XLSX ZIP/XML allocations retain SpreadsheetKit's
 own documented limits. This is whole-table conversion, not streaming.
 
-## Packaging and verification
+## Dependencies and package archive
 
-The BPM manifest declares local sibling dependencies on `spreadsheetkit`,
+The BPM manifest declares dependencies on `spreadsheetkit`,
 `jsonrows` and `csvkit`. Sealed consumers need those archives plus Buoy's bundled
-ZIP/XML archives. The example (not included in this repository)
-converts the first XLSX sheet or prints a JSON table as CSV without arguments.
-Import `spreadsheetkit` explicitly when calling `ReadXLSX` in consumer code.
+ZIP/XML archives. `Import spreadsheetkit` explicitly when calling `ReadXLSX` in consumer code.
 
 ```sh
-/usr/bin/buoy pkg seal . -o packages/dataadapterskit-0.1.0.buipkg
+mkdir -p dist
+"${BPM_PACKAGER:-buoy}" pkg seal . -o dist/dataadapterskit-0.1.0.buipkg
 ```
-
-The runner freshly seals dependencies, checks module/test/example on six desktop
-targets, generates a real XLSX ZIP fixture with sparse/null/formula cells, and
-executes sealed Linux consumers. A separate Python JSON/CSV oracle compares 120
-rows and 600 field conversions. Tests cover authoritative schema, empty sheets,
-case/Unicode headers, counts, strict conversion failures, bounds and no input
-mutation. `BUOY`, `BPM_PACKAGER`, `BUOY_ZIP_PACKAGE` and `BUOY_XML_PACKAGE` override
-the compiler, packager and bundled dependencies. Cross-target compiler checks
-are distinct from native runtime verification. No registry publication occurred.
 
 ## Export a JSONRows table to a byte sink
 
@@ -148,7 +138,7 @@ interleave records: callers must serialize access. No global lock is imposed.
 
 For a file export, supply a sink while keeping its stream lifecycle explicit:
 
-```buoy
+```basic
 Import dataadapterskit
 
 Class TableFileSink Implements CSVByteSink
@@ -174,11 +164,4 @@ Sub Main(args As Array Of String)
 End Sub
 ```
 
-The destination can contain partial output on failure. Choose a temporary file and
-publish it separately if your application needs atomic replacement. The source-backed
-`tests/run_dataadapters_sink_tests.py` verifies this sink path against Python CSV
-bytes, convenience output and flattening counts; add `--all-targets` for six-target
-compiler checks. Installed ZIP/XML dependency archives are required; set
-`ZIP_PACKAGE` and `XML_PACKAGE` if they are not in a standard installation path.
-
-Test suites and fixtures are maintainer-local and are not part of this public repository.
+The destination can contain partial output on failure. Choose a temporary file and publish it separately if the application needs atomic replacement. Installed ZIP/XML dependency archives are required.

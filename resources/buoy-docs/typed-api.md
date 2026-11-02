@@ -77,8 +77,6 @@ CSV text and counts of values whose distinct semantics were flattened.
 
 Returns: no value.
 
-## DataAdaptersKit functions
-
 ### JSONRowsCSV
 
 `Public Function JSONRowsCSV(table As JSONRowsTable, missingValue As String = "", nullValue As String = "", nestedJSON As Boolean = False, maxCharacters As Integer = 1000000) As CSVConversion`

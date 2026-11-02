@@ -18,7 +18,7 @@ BPM also resolves `spreadsheetkit`, `jsonrows`, `csvkit`.
 
 ## Example
 
-```buoy
+```basic
 Import dataadapterskit
 
 Class TableFileSink Implements CSVByteSink
@@ -64,7 +64,6 @@ On your own machine, install Buoy and run:
 buoy ai init --both
 ```
 
-The generated agent files and editor settings stay local and are ignored by Git.
 
 ## Contributing
 
